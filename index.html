@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Telegram Compass</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    #compass {
+      width: 300px;
+      height: 300px;
+      border: 4px solid #444;
+      border-radius: 50%;
+      position: relative;
+      background: radial-gradient(circle at center, #222 70%, #000 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #arrow {
+      width: 0; 
+      height: 0; 
+      border-left: 20px solid transparent;
+      border-right: 20px solid transparent;
+      border-bottom: 60px solid red;
+      position: absolute;
+      top: 70px;
+      transform-origin: 50% 100%;
+      transition: transform 0.2s linear;
+    }
+    #info {
+      margin-top: 20px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="compass">
+    <div id="arrow"></div>
+  </div>
+  <div id="info">
+    <div>Distance: <span id="distance">--</span> m</div>
+    <div>Heading: <span id="heading">--</span>°</div>
+  </div>
+
+  <script>
+    // === TARGET COORDINATES (example: Zagreb main square) ===
+    const targetLat = 45.8131;
+    const targetLon = 15.9770;
+
+    let currentLat = null;
+    let currentLon = null;
+    let deviceHeading = 0;
+
+    const arrow = document.getElementById("arrow");
+    const distanceElem = document.getElementById("distance");
+    const headingElem = document.getElementById("heading");
+
+    // Haversine formula: distance in meters
+    function getDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371e3; // Earth radius in meters
+      const φ1 = lat1 * Math.PI/180;
+      const φ2 = lat2 * Math.PI/180;
+      const Δφ = (lat2-lat1) * Math.PI/180;
+      const Δλ = (lon2-lon1) * Math.PI/180;
+
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+      return R * c;
+    }
+
+    // Bearing (angle from North to target)
+    function getBearing(lat1, lon1, lat2, lon2) {
+      const φ1 = lat1 * Math.PI/180;
+      const φ2 = lat2 * Math.PI/180;
+      const Δλ = (lon2-lon1) * Math.PI/180;
+
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1)*Math.sin(φ2) -
+                Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+      const θ = Math.atan2(y, x);
+      return (θ*180/Math.PI + 360) % 360;
+    }
+
+    function updateArrow() {
+      if (currentLat && currentLon) {
+        const distance = getDistance(currentLat, currentLon, targetLat, targetLon);
+        const bearing = getBearing(currentLat, currentLon, targetLat, targetLon);
+
+        // Relative angle = bearing - device heading
+        const angle = bearing - deviceHeading;
+        arrow.style.transform = `rotate(${angle}deg)`;
+
+        distanceElem.textContent = distance.toFixed(1);
+        headingElem.textContent = deviceHeading.toFixed(0);
+      }
+    }
+
+    // Track GPS
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(pos => {
+        currentLat = pos.coords.latitude;
+        currentLon = pos.coords.longitude;
+        updateArrow();
+      }, err => console.error(err), { enableHighAccuracy: true });
+    } else {
+      alert("Geolocation not supported");
+    }
+
+    // Track compass heading
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener("deviceorientationabsolute", e => {
+        if (e.alpha !== null) {
+          deviceHeading = e.alpha; // degrees from North
+          updateArrow();
+        }
+      }, true);
+
+      // Fallback for iOS
+      window.addEventListener("deviceorientation", e => {
+        if (e.webkitCompassHeading) {
+          deviceHeading = e.webkitCompassHeading; // iOS
+          updateArrow();
+        }
+      }, true);
+    }
+  </script>
+</body>
+</html>
