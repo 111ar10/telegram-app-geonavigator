@@ -1,143 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Telegram Compass</title>
+  <meta charset="UTF-8" />
+  <title>Compass Navigator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <style>
     body {
       margin: 0;
-      height: 100vh;
+      font-family: sans-serif;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      background: #111;
-      color: #fff;
-      font-family: Arial, sans-serif;
+      height: 100vh;
     }
     #compass {
-      width: 300px;
-      height: 300px;
-      border: 4px solid #444;
-      border-radius: 50%;
-      position: relative;
-      background: radial-gradient(circle at center, #222 70%, #000 100%);
+      flex: 1;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
+      justify-content: center;
+      font-size: 2em;
     }
-    #arrow {
-      width: 0; 
-      height: 0; 
-      border-left: 20px solid transparent;
-      border-right: 20px solid transparent;
-      border-bottom: 60px solid red;
-      position: absolute;
-      top: 70px;
-      transform-origin: 50% 100%;
+    #distance {
+      margin-top: 10px;
+      font-size: 1.2em;
+      color: #333;
+    }
+    #map {
+      height: 40%;
+    }
+    .arrow {
+      font-size: 5em;
       transition: transform 0.2s linear;
-    }
-    #info {
-      margin-top: 20px;
-      text-align: center;
     }
   </style>
 </head>
 <body>
   <div id="compass">
-    <div id="arrow"></div>
+    <span id="arrow" class="arrow">🧭</span>
+    <div id="distance">Calculating...</div>
   </div>
-  <div id="info">
-    <div>Distance: <span id="distance">--</span> m</div>
-    <div>Heading: <span id="heading">--</span>°</div>
-  </div>
+  <div id="map"></div>
 
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
-    // === TARGET COORDINATES (example: Zagreb main square) ===
-    const targetLat = 45.8131;
-    const targetLon = 15.9770;
+    // --- Get target from URL ---
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetLat = parseFloat(urlParams.get("lat"));
+    const targetLon = parseFloat(urlParams.get("lon"));
 
-    let currentLat = null;
-    let currentLon = null;
-    let deviceHeading = 0;
+    // --- Leaflet map setup ---
+    const map = L.map('map').setView([targetLat, targetLon], 15);
 
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19
+    }).addTo(map);
+
+    // Marker for target
+    const targetMarker = L.marker([targetLat, targetLon]).addTo(map).bindPopup("Target");
+
+    // Marker for player
+    let playerMarker = L.marker([0,0]).addTo(map).bindPopup("You are here");
+
+    // --- Compass arrow ---
     const arrow = document.getElementById("arrow");
-    const distanceElem = document.getElementById("distance");
-    const headingElem = document.getElementById("heading");
+    const distanceDiv = document.getElementById("distance");
 
-    // Haversine formula: distance in meters
-    function getDistance(lat1, lon1, lat2, lon2) {
-      const R = 6371e3; // Earth radius in meters
-      const φ1 = lat1 * Math.PI/180;
-      const φ2 = lat2 * Math.PI/180;
-      const Δφ = (lat2-lat1) * Math.PI/180;
-      const Δλ = (lon2-lon1) * Math.PI/180;
+    // Bearing calculation
+    function bearing(lat1, lon1, lat2, lon2) {
+      const toRad = x => x * Math.PI / 180;
+      const toDeg = x => x * 180 / Math.PI;
+      const dLon = toRad(lon2 - lon1);
+      lat1 = toRad(lat1);
+      lat2 = toRad(lat2);
 
-      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const y = Math.sin(dLon) * Math.cos(lat2);
+      const x = Math.cos(lat1)*Math.sin(lat2) - Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    // Distance calculation (Haversine)
+    function distance(lat1, lon1, lat2, lon2) {
+      const R = 6371000; // meters
+      const toRad = x => x * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      lat1 = toRad(lat1);
+      lat2 = toRad(lat2);
+
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-      return R * c;
+      return R * c; // meters
     }
 
-    // Bearing (angle from North to target)
-    function getBearing(lat1, lon1, lat2, lon2) {
-      const φ1 = lat1 * Math.PI/180;
-      const φ2 = lat2 * Math.PI/180;
-      const Δλ = (lon2-lon1) * Math.PI/180;
-
-      const y = Math.sin(Δλ) * Math.cos(φ2);
-      const x = Math.cos(φ1)*Math.sin(φ2) -
-                Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
-      const θ = Math.atan2(y, x);
-      return (θ*180/Math.PI + 360) % 360;
-    }
-
-    function updateArrow() {
-      if (currentLat && currentLon) {
-        const distance = getDistance(currentLat, currentLon, targetLat, targetLon);
-        const bearing = getBearing(currentLat, currentLon, targetLat, targetLon);
-
-        // Relative angle = bearing - device heading
-        const angle = bearing - deviceHeading;
-        arrow.style.transform = `rotate(${angle}deg)`;
-
-        distanceElem.textContent = distance.toFixed(1);
-        headingElem.textContent = deviceHeading.toFixed(0);
+    // Device orientation
+    let deviceHeading = 0;
+    window.addEventListener("deviceorientationabsolute", e => {
+      if (e.alpha !== null) {
+        deviceHeading = e.alpha;
       }
-    }
+    }, true);
 
-    // Track GPS
-    if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition(pos => {
-        currentLat = pos.coords.latitude;
-        currentLon = pos.coords.longitude;
-        updateArrow();
-      }, err => console.error(err), { enableHighAccuracy: true });
-    } else {
-      alert("Geolocation not supported");
-    }
+    // Track position
+    navigator.geolocation.watchPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
 
-    // Track compass heading
-    if (window.DeviceOrientationEvent) {
-      window.addEventListener("deviceorientationabsolute", e => {
-        if (e.alpha !== null) {
-          deviceHeading = e.alpha; // degrees from North
-          updateArrow();
-        }
-      }, true);
+      // Update player marker
+      playerMarker.setLatLng([lat, lon]);
+      map.setView([lat, lon]);
 
-      // Fallback for iOS
-      window.addEventListener("deviceorientation", e => {
-        if (e.webkitCompassHeading) {
-          deviceHeading = e.webkitCompassHeading; // iOS
-          updateArrow();
-        }
-      }, true);
-    }
+      // Calculate bearing to target
+      const brng = bearing(lat, lon, targetLat, targetLon);
+
+      // Rotate arrow relative to device heading
+      const angle = brng - deviceHeading;
+      arrow.style.transform = `rotate(${angle}deg)`;
+
+      // Calculate distance
+      const dist = distance(lat, lon, targetLat, targetLon);
+      if (dist > 1000) {
+        distanceDiv.innerText = `Distance: ${(dist/1000).toFixed(2)} km`;
+      } else {
+        distanceDiv.innerText = `Distance: ${Math.round(dist)} m`;
+      }
+    }, err => {
+      console.error(err);
+      distanceDiv.innerText = "GPS error: unable to get location";
+    }, { enableHighAccuracy: true });
   </script>
 </body>
 </html>
