@@ -14,6 +14,8 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      background: #000;
+      color: #fff;
     }
     #compass {
       flex: 1;
@@ -25,8 +27,14 @@
     }
     #distance {
       margin-top: 10px;
-      font-size: 1.2em;
-      color: #333;
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 6px 12px;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 0 6px rgba(255,255,255,0.3);
     }
     #map {
       height: 40%;
@@ -35,12 +43,23 @@
       font-size: 5em;
       transition: transform 0.2s linear;
     }
+    #modeToggle {
+      margin: 8px;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      background: #fff;
+      color: #000;
+      font-size: 1em;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <div id="compass">
     <span id="arrow" class="arrow">🧭</span>
     <div id="distance">Waiting for GPS...</div>
+    <button id="modeToggle">Mode: Compass</button>
   </div>
   <div id="map"></div>
 
@@ -68,6 +87,14 @@
     // --- Compass + Distance UI ---
     const arrow = document.getElementById("arrow");
     const distanceDiv = document.getElementById("distance");
+    const modeToggle = document.getElementById("modeToggle");
+
+    let mode = "compass"; // "compass" or "gps"
+
+    modeToggle.addEventListener("click", () => {
+      mode = (mode === "compass") ? "gps" : "compass";
+      modeToggle.innerText = `Mode: ${mode === "compass" ? "Compass" : "GPS"}`;
+    });
 
     // Bearing calculation
     function bearing(lat1, lon1, lat2, lon2) {
@@ -98,21 +125,33 @@
       return R * c; // meters
     }
 
-    // Device heading (works on iOS + Android)
+    // Device heading (works on iOS + Android, smoothed)
     let deviceHeading = 0;
+    let headingHistory = [];
+
+    function smoothHeading(newHeading) {
+      headingHistory.push(newHeading);
+      if (headingHistory.length > 5) headingHistory.shift();
+      const sum = headingHistory.reduce((a,b) => a+b, 0);
+      return sum / headingHistory.length;
+    }
+
     window.addEventListener("deviceorientationabsolute", e => {
       if (e.alpha !== null) {
-        deviceHeading = e.alpha;
+        deviceHeading = smoothHeading(e.alpha);
       }
     }, true);
 
     window.addEventListener("deviceorientation", e => {
       if (e.webkitCompassHeading) {
-        deviceHeading = e.webkitCompassHeading; // iOS
+        deviceHeading = smoothHeading(e.webkitCompassHeading); // iOS
       } else if (e.alpha !== null) {
-        deviceHeading = e.alpha; // Android fallback
+        deviceHeading = smoothHeading(e.alpha); // Android
       }
     }, true);
+
+    // Last GPS fix for GPS-bearing mode
+    let lastLat = null, lastLon = null;
 
     // Track position
     navigator.geolocation.watchPosition(pos => {
@@ -126,8 +165,19 @@
       // Bearing to target
       const brng = bearing(lat, lon, targetLat, targetLon);
 
-      // Normalize arrow rotation
-      const angle = (brng - deviceHeading + 360) % 360;
+      let angle;
+      if (mode === "compass") {
+        // Normalize with device compass
+        angle = (brng - deviceHeading + 360) % 360;
+      } else {
+        // Use movement-based GPS bearing if last fix exists
+        if (lastLat !== null && lastLon !== null) {
+          angle = bearing(lastLat, lastLon, lat, lon);
+        } else {
+          angle = brng; // fallback
+        }
+      }
+
       arrow.style.transform = `rotate(${angle}deg)`;
 
       // Distance
@@ -137,6 +187,9 @@
       } else {
         distanceDiv.innerText = `Distance: ${Math.round(dist)} m`;
       }
+
+      lastLat = lat;
+      lastLon = lon;
     }, err => {
       console.error(err);
       distanceDiv.innerText = "GPS error: unable to get location";
