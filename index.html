@@ -40,7 +40,7 @@
 <body>
   <div id="compass">
     <span id="arrow" class="arrow">🧭</span>
-    <div id="distance">Calculating...</div>
+    <div id="distance">Waiting for GPS...</div>
   </div>
   <div id="map"></div>
 
@@ -65,7 +65,7 @@
     // Marker for player
     let playerMarker = L.marker([0,0]).addTo(map).bindPopup("You are here");
 
-    // --- Compass arrow ---
+    // --- Compass + Distance UI ---
     const arrow = document.getElementById("arrow");
     const distanceDiv = document.getElementById("distance");
 
@@ -98,11 +98,19 @@
       return R * c; // meters
     }
 
-    // Device orientation
+    // Device heading (works on iOS + Android)
     let deviceHeading = 0;
     window.addEventListener("deviceorientationabsolute", e => {
       if (e.alpha !== null) {
         deviceHeading = e.alpha;
+      }
+    }, true);
+
+    window.addEventListener("deviceorientation", e => {
+      if (e.webkitCompassHeading) {
+        deviceHeading = e.webkitCompassHeading; // iOS
+      } else if (e.alpha !== null) {
+        deviceHeading = e.alpha; // Android fallback
       }
     }, true);
 
@@ -115,14 +123,14 @@
       playerMarker.setLatLng([lat, lon]);
       map.setView([lat, lon]);
 
-      // Calculate bearing to target
+      // Bearing to target
       const brng = bearing(lat, lon, targetLat, targetLon);
 
-      // Rotate arrow relative to device heading
-      const angle = brng - deviceHeading;
+      // Normalize arrow rotation
+      const angle = (brng - deviceHeading + 360) % 360;
       arrow.style.transform = `rotate(${angle}deg)`;
 
-      // Calculate distance
+      // Distance
       const dist = distance(lat, lon, targetLat, targetLon);
       if (dist > 1000) {
         distanceDiv.innerText = `Distance: ${(dist/1000).toFixed(2)} km`;
